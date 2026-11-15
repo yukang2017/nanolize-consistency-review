@@ -98,7 +98,7 @@ ol.plain { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column
 .item dd > ul:first-child, .item dd > ol:first-child { margin-top: 0; }
 @media (max-width: 560px) { .item { grid-template-columns: 1fr; } .item dl { grid-template-columns: 1fr; gap: 2px 0; } .item dt { margin-top: 8px; } }
 
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .step { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
 .step b { font-family: var(--font-head); font-size: 15px; }
 .step .when { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); letter-spacing: .03em; }
@@ -118,6 +118,7 @@ footer p { max-width: 86ch; }
     <span><b>分析对象</b> nanolize（私有仓库）<code>main</code> @ a6fc619，版本 0.8.0</span>
     <span><b>实测对象</b> tqdm @ 9cf5a12 的四个交付结果，全功能范围</span>
     <span><b>状态</b> 本页全部是分析和建议，没有修改 nanolize</span>
+    <span><b>更新</b> 原先待定的三件事已经定下，改进 1、2、5 和“备选”一节按决定改写</span>
   </div>
 </header>
 
@@ -143,6 +144,21 @@ footer p { max-width: 86ch; }
     <li><b>同一批行为反复丢。</b><code>format_meter</code> 的边界情况在 4 个结果里错了 3 个，进程退出时监视线程拖住退出也是 3 个，无穷大总量和 <code>sys.stdout</code> 为空各 2 个。材料里另一个交付版本的 9 个回归，有 6 个和这里重合。</li>
     <li><b>改进分三层。</b>先让缺口看得见（改进 1、2，不花模型调用）；再把公开测试找回验收并交接剩余部分（改进 3、4，这是真正的修复）；然后控制随之上升的修复成本，并补上原测试也没覆盖的行为（改进 5、6、7）。</li>
   </ul>
+</section>
+
+<section>
+  <h2>已定的三件事</h2>
+  <p>这三件事原先列为待定，现在已经定下，并写进了下面的改进方案。</p>
+  <div class="panel"><div class="scroll">
+  <table class="wide">
+    <thead><tr><th>事项</th><th>决定</th><th>理由</th><th>写在哪里</th></tr></thead>
+    <tbody>
+      <tr><td class="id">状态</td><td>有原版检查被剔除且没有替代时，作业不再是 <code>succeeded</code>，而是落到已有的 <code>completed_with_gaps</code>，并显示未验证的用例数。不新增状态</td><td>nanolize 已经有这第三种状态。“almost succeeded” 容易被读成“差几个检查没过”，那是 <code>delivered_with_failures</code> 的意思</td><td>改进 1</td></tr>
+      <tr><td class="id">反馈</td><td>修复时的失败反馈可以带上断言的期望值和实际值，附四条限制</td><td>修复时本来就允许读失败能力的原版源码，一条断言信息泄露得更少</td><td>改进 5</td></tr>
+      <tr><td class="id">读源码</td><td>不把“一开始就让作者读原版源码”做成默认。只作为主人在审核页按能力选择的例外，放在改进 3、4 之后</td><td>受影响的正是最核心的能力；它只是让行为更可能留住，仍然没有验证；找回的测试加上现有的修复机制已经够用</td><td>“备选”一节</td></tr>
+    </tbody>
+  </table>
+  </div></div>
 </section>
 
 <section>
@@ -258,7 +274,7 @@ footer p { max-width: 86ch; }
     <div class="item">
       <div class="n">1</div>
       <div class="body">
-        <div class="head"><h3>把被剔除的检查写进计划、审核页和交付报告</h3><span class="tag">先做</span><span class="tag">不花模型调用</span></div>
+        <div class="head"><h3>把被剔除的检查写进计划、审核页和交付报告，状态用已有的 completed_with_gaps</h3><span class="tag">先做</span><span class="tag">不花模型调用</span></div>
         <dl>
           <dt>为什么</dt>
           <dd>现在主人看到的是 <code>succeeded</code> 和 “Selected checks and installation passed”。有 136 个原版用例不再参与验收这件事，只存在于转换时的一份报告里。先让它看得见，后面的改进才有衡量的基准。</dd>
@@ -269,12 +285,17 @@ footer p { max-width: 86ch; }
             <ul class="plain">
               <li>转换时把被剔除的检查和用例数写进清单本身，随清单进入计划。</li>
               <li>审核页在主人提交之前就显示：哪些原版检查不参与验收，属于哪些能力。</li>
-              <li>验收缺口名单（<code>job_tools/acceptance.py</code> 第 70 行）加一项，例如“原版检查被剔除且没有替代”。有这一项时，摘要不再只说检查全部通过。</li>
+              <li>验收缺口名单（<code>job_tools/acceptance.py</code> 第 70 行）加一项：原版检查被剔除且没有替代。有这一项时，作业落到已有的 <code>completed_with_gaps</code>，对外的话是 “Delivered with gaps (…); no full preservation claim is made”（<code>job_tools/deliver.py</code> 第 290 行）。</li>
+              <li>状态旁边带上数量，例如“91 个公开用例未验证”。给人看的文字可以写成 almost succeeded，程序读的状态名不变。</li>
               <li>交付报告按能力列出：原版用例多少，仍在验收的多少，被剔除的多少。</li>
             </ul>
           </dd>
+          <dt>已定</dt>
+          <dd>不新增第四种状态。nanolize 现在有三种交付状态：<code>succeeded</code>、<code>completed_with_gaps</code> 和 <code>delivered_with_failures</code>。这里的情况是检查全过、但有一部分行为没人查，正是第二种的意思。</dd>
+          <dt>要注意</dt>
+          <dd>在改进 3、4 落地之前，几乎每个真实项目都有被剔除的检查，这个状态会成为常态。所以数量必须显示出来。随着改进 3、4 把测试找回，数量应当下降，降到零时作业回到 <code>succeeded</code>。</dd>
           <dt>代价</dt>
-          <dd>改动小，不影响作者和验证的行为。要注意状态用词：是否把这类作业从 <code>succeeded</code> 改成别的状态，需要你来定。</dd>
+          <dd>改动小，不影响作者和验证的行为。</dd>
         </dl>
       </div>
     </div>
@@ -294,11 +315,13 @@ footer p { max-width: 86ch; }
               <li>交付之后，在候选代码的副本上运行被剔除检查的原版测试文件，每个文件一个进程。</li>
               <li>测试文件顶部导入失败的项目名字换成占位符，免得一个缺失的名字让整个文件无法收集。断言不动。</li>
               <li>按“只用公开接口”和“结构耦合”分开计数。只把前者的失败列为行为差异。</li>
-              <li>结果写进交付报告，单列一节，不改变作业状态。</li>
+              <li>结果写进交付报告，单列一节。作业状态由改进 1 的缺口决定，回放的结果不改变它，也不进入作者的反馈。</li>
             </ul>
           </dd>
           <dt>要注意</dt>
           <dd>合并运行多个测试文件时出现过卡死，分开运行没有问题，所以每个文件单独一个进程并设时限。这里的静态分类规则比较粗，改进 3 落地后应当换成转换器自己的分类。</dd>
+          <dt>过渡办法</dt>
+          <dd>如果想在改进 3、4 之前就降低风险，可以把回放里失败的公开用例当作失败的检查，触发正常的修复。代价是回放不再是作者没见过的检验集，衡量效果要改用另一套独立的场景，比如材料 2 的 767 个。</dd>
         </dl>
       </div>
     </div>
@@ -361,7 +384,7 @@ footer p { max-width: 86ch; }
     <div class="item">
       <div class="n">5</div>
       <div class="body">
-        <div class="head"><h3>控制修复成本：事实绑定到用例，反馈指到具体事实</h3><span class="tag">跟着 3、4 做</span></div>
+        <div class="head"><h3>控制修复成本：事实绑定到用例，反馈指到具体事实并带上期望值</h3><span class="tag">跟着 3、4 做</span></div>
         <dl>
           <dt>为什么</dt>
           <dd>验收变严以后，作者的修复会变多。现在的修复是在信息很少的情况下进行的：失败反馈只有异常类型和用例数，作者要在一整条检查的全部事实里猜是哪一条。</dd>
@@ -372,12 +395,24 @@ footer p { max-width: 86ch; }
             <ul class="plain">
               <li>大的测试文件按测试分组写事实，不受单文件 40 条的限制，并核对每个测试都有事实对应。</li>
               <li>设计测试的事实也要绑定到具体的测试函数。现在每条事实都挂在文件的全部函数上。</li>
-              <li>失败反馈列出“失败用例对应的事实编号”，而不是整条检查的全部事实。这不泄露断言，只是缩小范围。</li>
+              <li>失败反馈列出“失败用例对应的事实编号”，而不是整条检查的全部事实。</li>
+              <li>修复时的失败反馈带上失败断言的期望值和实际值。</li>
               <li>修复时能借到该能力读取或安装的非源码资源文件。现在这类文件属于不了任何能力，借不到。</li>
             </ul>
           </dd>
-          <dt>要你定的</dt>
-          <dd>是否允许反馈带上失败断言的期望值。默认的修复已经允许读失败能力的原版源码，相比之下一条断言信息泄露得更少；但这改变了“测试留在验证侧”的现有约定。</dd>
+          <dt>已定的限制</dt>
+          <dd>反馈可以带期望值。这改变了“失败信息留在验证侧”的现有约定，所以附四条限制：
+            <ul class="plain">
+              <li><b>只在修复时给。</b>首次实现仍然只凭契约和事实。它跟随现有的 <code>source_reference</code> 设置，设为 <code>never</code> 时不给。</li>
+              <li><b>只给失败用例的断言信息。</b>期望值和实际值截断到固定长度，不给测试源码。</li>
+              <li><b>留记录。</b>像借出原版文件一样记下每次给了什么，交付报告里能看到。</li>
+              <li><b>事实的缺口照样记。</b>每次靠断言信息才修好，就记一条“事实不够用”，用来改事实。否则首次实现的质量不会提高。</li>
+            </ul>
+          </dd>
+          <dt>风险</dt>
+          <dd>作者可能针对期望值写特例，而不是把逻辑修对。这要靠改进 2 的回放和改进 6 的差分场景来发现，所以那两项不能省。</dd>
+          <dt>没有验证</dt>
+          <dd>预期它能让“连修三次没有变化”的情况一次修好。这一点没有试。</dd>
         </dl>
       </div>
     </div>
@@ -449,16 +484,40 @@ footer p { max-width: 86ch; }
     </tbody>
   </table>
   </div></div>
-  <p>还有一个更大的方向，需要你来定：对于原版测试被剔除又没有替代的能力，是否从一开始就让作者读这个能力的原版源码，改成“就地简化”。这样没被检查的行为默认留着，但和“独立重写、不默写原版”的设计相冲突。在改进 3、4 落地之前，这是能直接降低这类风险的一个办法；落地之后是否还需要，可以用回放数字来判断。</p>
+  <p>由此引出一个更大的问题：原版测试被剔除又没有替代的能力，要不要从一开始就让作者读原版源码，改成“就地简化”。这件事已经定下，见下一节。</p>
+</section>
+
+<section>
+  <h2>备选：按能力选择重写方式</h2>
+  <p>决定是不把“没有测试就给源码”做成默认。它只作为主人在审核页按能力选择的例外，并且放在改进 3、4 之后。</p>
+  <ul class="plain">
+    <li><b>受影响的正是最重要的部分。</b>在 tqdm 里，测试被剔除又没有替代的能力是 <code>core</code>，也就是进度条本体。给它原版源码，等于最核心的部分从“独立重写”变成“就地整理”，体积下降会小很多，防默写的检查也得为它开例外。</li>
+    <li><b>它只是让行为更可能留住，仍然没有验证。</b>没有测试，丢了也看不见。改进 2、3 是既留住又能查。</li>
+    <li><b>找回的测试加上现有的修复机制已经够用。</b>材料 2 的 B 组首次实现没有看源码，靠找回的测试触发修复，修复时借到 4 个原版文件，场景一致率是 98.0%。这是“有证据表明失败了才给源码”，比“没有测试就给源码”更合理。</li>
+  </ul>
+  <p>做法：改进 3、4 做完之后，用回放数字看每个能力还剩多少未验证的行为。剩得多的能力，在审核页让主人从三种方式里选一种。</p>
+  <div class="panel"><div class="scroll">
+  <table class="wide">
+    <thead><tr><th>方式</th><th>行为上的风险</th><th>体积</th><th>和“独立重写”的关系</th></tr></thead>
+    <tbody>
+      <tr><td class="id">照常重写</td><td>未验证的行为可能丢，交付状态里写明数量</td><td>照常下降</td><td>一致。这是默认</td></tr>
+      <tr><td class="id">原样保留</td><td>没有。这个能力的文件逐字节进入每个候选</td><td>这部分不省，也不计入体积比较的任何一侧</td><td>不涉及，没有作者写它</td></tr>
+      <tr><td class="id">就地简化</td><td>低，但仍然没有验证</td><td>下降有限</td><td>作者从一开始就读这个能力的原版源码，要为它关掉防默写检查</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="sub">“原样保留”可以借用清单里已有的 <code>carry</code> 列表。试了一次规划：把 <code>core</code> 唯一的文件 <code>tqdm/std.py</code>（13,079 tokens）放进去，规划器接受，体积比较的基数从 70,579 降到 57,500。<code>carry</code> 本来是为数据文件设计的，带上整个能力之后作业怎么走，没有试。“就地简化”现在没有对应的机制。</p>
+  </div>
 </section>
 
 <section>
   <h2>建议的顺序</h2>
   <div class="steps">
-    <div class="step"><span class="when">第一步</span><b>让缺口看得见</b>改进 1 和 2。不花模型调用，不改变作业行为。做完之后每次交付都有一个一致性数字。</div>
+    <div class="step"><span class="when">第一步</span><b>让缺口看得见</b><span>改进 1 和 2。不花模型调用，不改变作者和验证的行为。有未替代的检查时，状态不再是 succeeded。每次交付都有一个一致性数字。</span></div>
     <div class="step"><span class="when">第二步</span><b>找回公开测试</b>改进 3。把原型的做法做进转换器，补上能力归属和类内 fixture。用第一步的数字和材料里的评估集验证。</div>
-    <div class="step"><span class="when">第三步</span><b>交接和成本</b>改进 4 和 5。迁移任务进入补测；事实和反馈变精确，把修复轮次压回去。</div>
+    <div class="step"><span class="when">第三步</span><b>交接和成本</b>改进 4 和 5。迁移任务进入补测；事实绑定到用例，修复反馈带上期望值，把修复轮次压回去。</div>
     <div class="step"><span class="when">第四步</span><b>覆盖更多行为</b>改进 6 和 7。差分场景，以及作者策略的调整。</div>
+    <div class="step"><span class="when">视数字而定</span><b>按能力选择重写方式</b>前三步做完后，哪个能力仍有很多未验证的行为，再在审核页提供“原样保留”和“就地简化”。</div>
   </div>
   <p>每一步的验收可以沿用材料 3 提出的三个条件：恢复或迁移的检查在原版上通过；已知的公开行为缺陷能被检出；只改内部结构的对照不被误伤。</p>
 </section>
@@ -470,6 +529,7 @@ footer p { max-width: 86ch; }
     <li><b>不要放宽断言或容差来让候选通过。</b>修的是代码，不是验收标准。</li>
     <li><b>不要把检查条目变多当成覆盖变好。</b>要看的是行为有没有去向。</li>
     <li><b>不要把回放和独立评估的结果喂给作者。</b>它们一旦进入反馈，就不再能衡量改进的效果。要用它们修代码，就应当正式把对应的测试恢复进验收。</li>
+    <li><b>不要把“没有测试就给作者原版源码”做成默认。</b>它让行为更可能留住，但留没留住仍然没人查，而且改变的正是最核心的那部分重写。</li>
     <li><b>不要一刀切地要求事实逐字引用每个断言里的字面量。</b>多数字面量可以从事实陈述的规则推出来。另一次作业里量过：断言中的 167 个字符串有 87 个没有被事实逐字引用，而那次 470 个用例通过了 468 个。</li>
   </ul>
 </section>
