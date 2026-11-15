@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanolize 行为一致性改进</title>
+<meta name="description" content="对照 nanolize 最新 main 分支，核对三份关于行为一致性的分析材料，在已有交付结果上实测，并给出按优先级排列的七项改进。">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column. Verdict and four figures first, then what the materials say, what main does today, what the deliveries show, then the seven improvements in order of priority. */
+:root {
+  --bg: #f4f6f9; --card: #fcfcfb; --ink: #14171c; --ink-2: #474e5c; --ink-3: #6b7281;
+  --line: #dde1e8; --accent: #2a78d6; --accent-soft: #dfeafa;
+  --good-ink: #0b6b0b; --warn-ink: #7a5200; --crit-ink: #a52727;
+  --good-bg: #e4f5e4; --warn-bg: #fdf1d3; --crit-bg: #fbe3e3; --warn: #fab219;
+  --font-body: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-head: "Space Grotesk", Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111315; --card: #1a1a19; --ink: #eceef1; --ink-2: #c0c5ce; --ink-3: #959cab;
+    --line: #2f333a; --accent: #5a9cec; --accent-soft: #162c47;
+    --good-ink: #7fd67f; --warn-ink: #f3c458; --crit-ink: #f08d8d;
+    --good-bg: #12301a; --warn-bg: #3a2d0c; --crit-bg: #3b1a1a; --warn: #c98500;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111315; --card: #1a1a19; --ink: #eceef1; --ink-2: #c0c5ce; --ink-3: #959cab;
+  --line: #2f333a; --accent: #5a9cec; --accent-soft: #162c47;
+  --good-ink: #7fd67f; --warn-ink: #f3c458; --crit-ink: #f08d8d;
+  --good-bg: #12301a; --warn-bg: #3a2d0c; --crit-bg: #3b1a1a; --warn: #c98500;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7; }
+.page { max-width: 1000px; margin: 0 auto; padding-block: 36px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 44px; }
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; color: var(--ink-3); }
+h1 { font-family: var(--font-head); font-weight: 600; font-size: clamp(25px, 4.2vw, 36px); line-height: 1.28; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-head); font-weight: 600; font-size: 22px; line-height: 1.3; margin: 0; text-wrap: balance; }
+h3 { font-size: 16px; font-weight: 600; margin: 0; line-height: 1.45; }
+p { margin: 0; max-width: 72ch; }
+a { color: var(--accent); }
+.lede { font-size: 16.5px; color: var(--ink-2); max-width: 72ch; }
+code, .mono { font-family: var(--font-mono); font-size: .86em; }
+code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: var(--ink-2); }
+.meta b { font-weight: 500; color: var(--ink-3); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.kpi .label { font-size: 12.5px; color: var(--ink-3); }
+.kpi .value { font-family: var(--font-head); font-weight: 600; font-size: 30px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi .value small { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+.kpi .note { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 500; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.pill.good { background: var(--good-bg); color: var(--good-ink); }
+.pill.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.pill.crit { background: var(--crit-bg); color: var(--crit-ink); }
+.pill.plain { background: var(--accent-soft); color: var(--ink); }
+.tag { display: inline-block; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; white-space: nowrap; line-height: 1.6; }
+
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; vertical-align: bottom; }
+tr:last-child td { border-bottom: 0; }
+td.id { font-family: var(--font-head); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td small { color: var(--ink-3); font-size: 12px; display: block; margin-top: 3px; line-height: 1.5; }
+table.wide td:nth-child(2) { min-width: 230px; }
+table.wide td:nth-child(3) { min-width: 260px; }
+table.three td { min-width: 200px; }
+table.three td:first-child { min-width: 130px; }
+table.nowrap1 td:first-child { white-space: nowrap; }
+.sub { font-size: 13px; color: var(--ink-3); max-width: 80ch; }
+
+ul.plain { margin: 0; padding-left: 1.15em; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
+ol.plain { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
+
+.item { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.item:first-child { padding-top: 2px; } .item:last-child { border-bottom: 0; padding-bottom: 2px; }
+.item .n { font-family: var(--font-head); font-weight: 600; font-size: 24px; line-height: 1.2; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.item .body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.item .head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.item dl { margin: 0; display: grid; grid-template-columns: 6.4em 1fr; gap: 10px 12px; font-size: 14px; }
+.item dt { color: var(--ink-3); font-size: 13px; padding-top: 1px; }
+.item dd { margin: 0; max-width: 74ch; min-width: 0; }
+.item dd > ul, .item dd > ol { margin-top: 8px; }
+.item dd > ul:first-child, .item dd > ol:first-child { margin-top: 0; }
+@media (max-width: 560px) { .item { grid-template-columns: 1fr; } .item dl { grid-template-columns: 1fr; gap: 2px 0; } .item dt { margin-top: 8px; } }
+
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; }
+.step { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.step b { font-family: var(--font-head); font-size: 15px; }
+.step .when { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); letter-spacing: .03em; }
+
+footer { font-size: 12.5px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+footer p { max-width: 86ch; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">nanolize 行为一致性 · main @ a6fc619 · 2026-11-15</div>
+  <h1>作业报成功，被剔除的原版测试里仍有公开行为回归：最新 main 上的七项改进</h1>
+  <p class="lede">这一页回答一个问题：要让 nanolize 重写前后的行为更一致，最新的 <code>main</code> 分支还需要改什么。依据有三部分：三份关于行为一致性的分析和实验材料，一份公开的代码简化提示词，以及我在最新 <code>main</code> 的代码和四个已有交付结果上做的核对与实测。结论是材料指出的核心问题在最新 <code>main</code> 上原样存在，实测也能复现；下面按优先级给出七项改进。</p>
+  <div class="meta">
+    <span><b>分析对象</b> nanolize（私有仓库）<code>main</code> @ a6fc619，版本 0.8.0</span>
+    <span><b>实测对象</b> tqdm @ 9cf5a12 的四个交付结果，全功能范围</span>
+    <span><b>状态</b> 本页全部是分析和建议，没有修改 nanolize</span>
+  </div>
+</header>
+
+<section>
+  <div class="kpis">
+    <div class="kpi"><div class="label">被整条剔除的原版测试</div><div class="value">136 <small>个用例</small></div>
+      <div class="note">5 个测试文件。保守估计其中 91 个只用公开接口</div></div>
+    <div class="kpi"><div class="label">这 91 个公开用例在交付结果上</div><div class="value">77–90 <small>个通过</small></div>
+      <div class="note">四个交付结果，各跑三轮。原版 91 个全过</div></div>
+    <div class="kpi"><div class="label">其中状态为 succeeded 的作业</div><div class="value">2 <small>个</small></div>
+      <div class="note">都有公开行为回归，验收里看不到</div></div>
+    <div class="kpi"><div class="label">材料里的对照实验</div><div class="value">98% <small>对 53%</small></div>
+      <div class="note">把公开测试找回验收后，767 个场景的一致率。来自材料，未复现</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>结论</h2>
+  <ul class="plain">
+    <li><b>问题在最新 main 上还在。</b>转换器仍然按“整条检查”取舍：一个测试文件里只要有一个测试确定用了私有名字，整条检查就被剔除，文件里其余只用公开接口的测试一起离开验收。这是代码里写明的限制。材料里的恢复原型没有合入。</li>
+    <li><b>被剔除的检查没有人接手。</b>转换报告只列出被剔除的检查名，后面没有任何环节读它。补测只看“哪个功能节点没有有效测试”，节点只要还剩别的测试就不补。作业的计划和交付报告里没有这些检查的记录。</li>
+    <li><b>实测能复现。</b>四个基于 main 的 tqdm 交付结果里，被剔除的 91 个公开用例分别通过 88、87、90、77 个。其中两个作业的状态是 <code>succeeded</code>，验收缺口为空。</li>
+    <li><b>同一批行为反复丢。</b><code>format_meter</code> 的边界情况在 4 个结果里错了 3 个，进程退出时监视线程拖住退出也是 3 个，无穷大总量和 <code>sys.stdout</code> 为空各 2 个。材料里另一个交付版本的 9 个回归，有 6 个和这里重合。</li>
+    <li><b>改进分三层。</b>先让缺口看得见（改进 1、2，不花模型调用）；再把公开测试找回验收并交接剩余部分（改进 3、4，这是真正的修复）；然后控制随之上升的修复成本，并补上原测试也没覆盖的行为（改进 5、6、7）。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>四份材料说了什么</h2>
+  <p>前三份是同一个人对 nanolize 做的分析和实验，对象是 tqdm 的核心范围，基于提交 <code>e51f0772</code>。这个提交已经在 <code>main</code> 里。第四份是公开资料。材料里的数字这里只做引用，没有重跑。</p>
+  <div class="panel"><div class="scroll">
+  <table class="wide">
+    <thead><tr><th>材料</th><th>内容</th><th>关键数字</th><th>对 main 的意义</th></tr></thead>
+    <tbody>
+      <tr><td class="id">1</td><td><b>流程问题与原因分析</b><small>转换器（contract-propose）为什么会漏掉行为</small></td><td>作业自己的冻结验收 29/29 通过。独立的公开行为复核里，原版 75/75，交付版本 66/75。9 个失败全部来自被筛掉的核心主测试文件</td><td>提出三个缺点：公开断言被连带删除；删掉后没有逐项补回；节点有测试不代表细节查全。三个都在 main 上核对到了</td></tr>
+      <tr><td class="id">2</td><td><b>公开测试恢复 A/B 对照</b><small>同一范围各跑一次作者：A 用现有转换器，B 把恢复的测试放进验收</small></td><td>767 个场景的一致率：A 53.3%，B 98.0%，更早的一个交付版本 74.1%。75 个公开检查：A 62 个通过，B 75 个。Token：A 304 万，B 810 万，约 2.66 倍</td><td>说明把公开测试找回验收确实有效，也说明代价：修复调用从 1 次变成 4 次。三个作业的状态都是 <code>succeeded</code></td></tr>
+      <tr><td class="id">3</td><td><b>转换器恢复检查 benchmark</b><small>一个按测试函数取舍的原型，两个本地提交，没有推送</small></td><td>主测试文件 80 个函数里恢复 66 个，13 个留作迁移，1 个空测试。恢复的测试在原版上 70/70，检出已知的 9/9 个回归。16 个小项目上：开发集 8/8，保留集 1/2</td><td>改进 3 的直接依据。原型自己列出的缺口：能力归属要人工审计，迁移任务没有自动改写，类内 fixture 解析不了</td></tr>
+      <tr><td class="id">4</td><td><b><a href="https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-simplifier/agents/code-simplifier.md">code-simplifier</a></b><small>Anthropic 官方插件里的代码简化 agent 提示词</small></td><td>五条原则：保持功能不变；遵循项目规范；清晰优先于简短；避免过度简化；只动最近改过的代码</td><td>和 nanolize 的作者策略逐条对照，见改进 7</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+</section>
+
+<section>
+  <h2>最新 main 现在是怎么做的</h2>
+  <p>行号是 <code>a6fc619</code> 上的位置，路径省略了 <code>src/nanolize/</code>。从 <code>e51f0772</code> 到现在 <code>main</code> 多了 137 个提交，其中 12 个改过转换器，都没有改变下面这些机制。</p>
+  <div class="panel"><div class="scroll">
+  <table class="wide">
+    <thead><tr><th>环节</th><th>现在的做法</th><th>位置</th><th>后果</th></tr></thead>
+    <tbody>
+      <tr><td class="id">转换</td><td>按检查判断。检查的测试文件用了外部契约之外的名字，或者确定用了私有结构，整条检查被剔除</td><td><code>graph_contract.py</code> 的 <code>convert()</code>，第 1532、1626 行。限制写在第 1721 行：“a check is left out whole for one test that certainly uses a private name”</td><td>同一文件里只用公开接口的测试一起离开验收</td></tr>
+      <tr><td class="id">已有的缓和</td><td>只是“推断出”的耦合，以及 <code>conftest.py</code> 里的耦合，不剔除检查，改为把名字写进契约</td><td>同一函数，报告字段 <code>checks_kept_with_names_stated</code></td><td>减少了误伤，但确定的耦合仍按整条处理</td></tr>
+      <tr><td class="id">交接</td><td>转换报告用 <code>checks_left_out</code> 列出被剔除的检查名和最多 20 个原因。后面没有代码读这个字段</td><td>运行技能的说明是 “go on; keep the numbers for the summary”（<code>skills/nanolize-run/SKILL.md</code> 第 135 行）</td><td>被剔除的行为没有去向记录</td></tr>
+      <tr><td class="id">补测</td><td>只为“基线里没有有效测试的叶节点”设计测试</td><td><code>execution.py</code> 的 <code>_freeze_designed_tests()</code>，第 3382 行</td><td>节点还剩别的测试时，丢掉的细节不会补回</td></tr>
+      <tr><td class="id">验收</td><td>缺口是一个固定的名单，里面没有“原版检查被剔除且未替代”这一项</td><td><code>job_tools/acceptance.py</code> 第 70 行</td><td>作业可以是 <code>succeeded</code>、缺口为空</td></tr>
+      <tr><td class="id">报告</td><td>转换发生在作业之前，作业的计划里没有被剔除检查的记录</td><td>作业目录的 <code>plan.json</code> 里，被剔除的测试文件只作为“不计入体积的文件”出现，没有作为检查的记录</td><td>交付报告无从展示</td></tr>
+      <tr><td class="id">恢复原型</td><td><code>--recover-tests</code> 和 <code>contract-materialize</code> 在 main 上不存在，原型的两个提交也不在远端</td><td>全仓库搜索无结果</td><td>材料 3 的做法还没有进入产品</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+</section>
+
+<section>
+  <h2>在已有交付结果上的实测</h2>
+  <p>这台机器上有四个 tqdm 全功能范围的交付结果，都来自 main 这条线上的提交。四次转换剔除的是同样的 5 个原版测试文件，共 136 个用例。我把这 5 个文件原样拿来，在原版和四个交付结果上各跑三轮，断言一个字没改。</p>
+  <p class="sub">怎么区分“公开”和“耦合”：一个测试函数自己、它用到的同文件辅助函数、或它按参数名取用的 fixture，只要读了私有属性、用了从项目导入的私有名字、或把私有名字写在字符串里交给 setattr 一类的调用，就算结构耦合。材料 3 的原型对主测试文件留作迁移的 13 个函数也并入这一侧。剩下的算“只用公开接口”。结构耦合的测试失败不算行为差异。</p>
+  <div class="panel"><div class="scroll">
+  <table>
+    <thead><tr><th>交付结果</th><th>作业状态</th><th class="num">只用公开接口<br>通过 / 91</th><th class="num">结构耦合<br>通过 / 41</th><th class="num">保留体积</th><th class="num">公开定义<br>有文档的比例</th></tr></thead>
+    <tbody>
+      <tr><td>原版 tqdm</td><td>—</td><td class="num">91</td><td class="num">41</td><td class="num">100%</td><td class="num">63.3%</td></tr>
+      <tr><td>main @ b96cf37，Claude Sonnet 5.5</td><td><span class="pill warn">delivered_with_failures</span></td><td class="num">88</td><td class="num">33</td><td class="num">54.3%</td><td class="num">20.4%</td></tr>
+      <tr><td>main @ b96cf37，Claude Fable 5.2</td><td><span class="pill good">succeeded</span></td><td class="num">87</td><td class="num">32</td><td class="num">54.9%</td><td class="num">20.1%</td></tr>
+      <tr><td>02bb178（已并入 main），Claude Fable 5.2</td><td><span class="pill good">succeeded</span></td><td class="num">90</td><td class="num">35</td><td class="num">54.3%</td><td class="num">23.3%</td></tr>
+      <tr><td>main @ dc149d2，Codex</td><td><span class="pill warn">delivered_with_failures</span></td><td class="num">77</td><td class="num">27</td><td class="num">32.4%</td><td class="num">0%</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="sub">136 个用例里另有 3 个在这个环境被跳过，1 个是空测试。三轮结果完全一致。两个带失败交付的作业，它们自己报告的失败和这里列的不是同一批：那是保留下来的检查里的失败。</p>
+  </div>
+
+  <h3>按文件看</h3>
+  <div class="panel"><div class="scroll">
+  <table class="nowrap1">
+    <thead><tr><th>被剔除的测试文件</th><th class="num">用例</th><th class="num">公开</th><th class="num">耦合</th><th class="num">Sonnet<br>b96cf37</th><th class="num">Fable<br>b96cf37</th><th class="num">Fable<br>02bb178</th><th class="num">Codex<br>dc149d2</th></tr></thead>
+    <tbody>
+      <tr><td><code>tests_tqdm.py</code>（进度条本体）</td><td class="num">86</td><td class="num">70</td><td class="num">15</td><td class="num">68</td><td class="num">67</td><td class="num">70</td><td class="num">60</td></tr>
+      <tr><td><code>tests_main.py</code>（命令行）</td><td class="num">9</td><td class="num">9</td><td class="num">0</td><td class="num">9</td><td class="num">9</td><td class="num">9</td><td class="num">5</td></tr>
+      <tr><td><code>tests_synchronisation.py</code>（监视线程）</td><td class="num">6</td><td class="num">3</td><td class="num">3</td><td class="num">2</td><td class="num">2</td><td class="num">2</td><td class="num">3</td></tr>
+      <tr><td><code>tests_concurrent.py</code>（并行）</td><td class="num">16</td><td class="num">4</td><td class="num">9</td><td class="num">4</td><td class="num">4</td><td class="num">4</td><td class="num">4</td></tr>
+      <tr><td><code>tests_contrib_logging.py</code>（日志）</td><td class="num">19</td><td class="num">5</td><td class="num">14</td><td class="num">5</td><td class="num">5</td><td class="num">5</td><td class="num">5</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="sub">后四列是公开用例里三轮都通过的个数。</p>
+  </div>
+
+  <h3>丢的是哪些行为</h3>
+  <div class="panel"><div class="scroll">
+  <table class="wide">
+    <thead><tr><th>行为</th><th>原版</th><th>交付结果</th><th>出现在</th></tr></thead>
+    <tbody>
+      <tr><td><code>format_meter</code> 的边界情况</td><td>总量为无穷大、带 ANSI 颜色码、指定列宽时都有确定的输出</td><td>抛 OverflowError；颜色码处理不同，宽度算错或多出复位码；不按列宽截断</td><td>Sonnet、Fable b96cf37、Codex</td></tr>
+      <tr><td>进程退出时的监视线程</td><td>退出处理在 2 秒内返回</td><td>被监视线程拖住超过 2 秒</td><td>三个 Claude 结果</td></tr>
+      <tr><td>总量为无穷大时重置</td><td><code>total</code> 变成 None</td><td>抛 OverflowError，或者 <code>total</code> 保持为 inf</td><td>Fable b96cf37、Codex</td></tr>
+      <tr><td><code>sys.stdout</code> 为 None 时 <code>tqdm.write</code></td><td>什么都不做</td><td>抛 AttributeError</td><td>Fable b96cf37、Codex</td></tr>
+      <tr><td>时间和数值格式</td><td>负的时间间隔是 <code>-00:01</code>，一百万是 <code>1e+6</code></td><td><code>-1:59:59</code>，<code>1e+06</code></td><td>Codex</td></tr>
+      <tr><td>命令行</td><td>选项值类型不对时抛 TqdmTypeError；日志选项下照常转发输入</td><td>不抛错；输出或计数不符</td><td>Codex，4 个用例</td></tr>
+      <tr><td>其它进度条细节</td><td>ASCII 自动检测、自定义 <code>bar_format</code> 的速率字段、禁用后重置、直接设置 postfix、按屏幕行数隐藏</td><td>各有一处不同</td><td>Codex</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="sub">材料 1 和 3 记录的另一个交付版本的 9 个回归是：<code>test_format_interval</code>、<code>test_format_num</code>、<code>test_format_meter</code>、<code>test_ANSI_escape_codes</code>、<code>test_SI_format</code>、<code>test_dynamic_min_iters</code>、<code>test_deprecated_nested</code>、<code>test_reset_inf</code>、<code>test_write_stdout_none</code>。前四个和后两个在这里也出现了。这些行为只由被剔除的测试约束，契约、事实和补测里都没有它们。</p>
+  </div>
+
+  <h3>一个具体例子：核心能力丢了 86 个用例，没有补回一个</h3>
+  <div class="panel">
+    <p>Codex 那次作业（main @ dc149d2，全部 24 个功能节点）的转换前后，核心能力 <code>core</code> 的检查是这样变化的：</p>
+    <div class="scroll"><table>
+      <thead><tr><th>检查</th><th class="num">用例</th><th>转换后</th></tr></thead>
+      <tbody>
+        <tr><td><code>pytest-tqdm</code>（主测试文件）</td><td class="num">86</td><td><span class="pill crit">剔除</span></td></tr>
+        <tr><td><code>pytest-pandas</code></td><td class="num">8</td><td>保留</td></tr>
+        <tr><td><code>pytest-perf</code></td><td class="num">7</td><td>保留</td></tr>
+        <tr><td><code>public-iteration-output</code></td><td class="num">1 条输出比对</td><td>保留</td></tr>
+      </tbody>
+    </table></div>
+    <p>转换之后 <code>core</code> 还剩 15 个用例和 1 条输出比对，所以它算“有有效测试”的节点。这次作业为 11 个节点设计了 20 个测试文件，没有一个是给 <code>core</code> 的。四个作业里都是这样：补测给了日志、监视、并行这类“整个节点没有测试了”的能力，进度条本体一个也没有。</p>
+    <p>命令行是另一种情况。它的原版检查被剔除后节点没有测试了，所以补了 3 个测试文件。但原版的 9 个命令行用例在这个交付结果上仍有 4 个失败。新设计的测试并不知道原来的测试查过什么。</p>
+  </div>
+</section>
+
+<section>
+  <h2>七项改进</h2>
+  <p>按建议的先后排列。每一项都还没有实现；“依据”一栏写明它来自材料、来自 main 的代码，还是来自上面的实测。</p>
+  <div class="panel">
+
+    <div class="item">
+      <div class="n">1</div>
+      <div class="body">
+        <div class="head"><h3>把被剔除的检查写进计划、审核页和交付报告</h3><span class="tag">先做</span><span class="tag">不花模型调用</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>现在主人看到的是 <code>succeeded</code> 和 “Selected checks and installation passed”。有 136 个原版用例不再参与验收这件事，只存在于转换时的一份报告里。先让它看得见，后面的改进才有衡量的基准。</dd>
+          <dt>依据</dt>
+          <dd>main 的代码：验收缺口名单里没有这一项，作业计划里没有被剔除检查的记录。实测：两个 <code>succeeded</code> 的作业各有 1 个和 4 个公开用例失败。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>转换时把被剔除的检查和用例数写进清单本身，随清单进入计划。</li>
+              <li>审核页在主人提交之前就显示：哪些原版检查不参与验收，属于哪些能力。</li>
+              <li>验收缺口名单（<code>job_tools/acceptance.py</code> 第 70 行）加一项，例如“原版检查被剔除且没有替代”。有这一项时，摘要不再只说检查全部通过。</li>
+              <li>交付报告按能力列出：原版用例多少，仍在验收的多少，被剔除的多少。</li>
+            </ul>
+          </dd>
+          <dt>代价</dt>
+          <dd>改动小，不影响作者和验证的行为。要注意状态用词：是否把这类作业从 <code>succeeded</code> 改成别的状态，需要你来定。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="n">2</div>
+      <div class="body">
+        <div class="head"><h3>交付后自动回放被剔除的公开测试，只报告、不验收</h3><span class="tag">先做</span><span class="tag">不花模型调用</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>这是成本最低的一致性度量。每次交付都能得到一个数字，而且它不进入作者的反馈，所以能一直当作没被“见过”的检验集，用来衡量后面每一项改进有没有效果。</dd>
+          <dt>依据</dt>
+          <dd>上面的实测就是它的手工版本：五棵代码树各跑三轮，没有模型调用，结果稳定。材料 2 的独立评估是同一个思路。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>交付之后，在候选代码的副本上运行被剔除检查的原版测试文件，每个文件一个进程。</li>
+              <li>测试文件顶部导入失败的项目名字换成占位符，免得一个缺失的名字让整个文件无法收集。断言不动。</li>
+              <li>按“只用公开接口”和“结构耦合”分开计数。只把前者的失败列为行为差异。</li>
+              <li>结果写进交付报告，单列一节，不改变作业状态。</li>
+            </ul>
+          </dd>
+          <dt>要注意</dt>
+          <dd>合并运行多个测试文件时出现过卡死，分开运行没有问题，所以每个文件单独一个进程并设时限。这里的静态分类规则比较粗，改进 3 落地后应当换成转换器自己的分类。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="n">3</div>
+      <div class="body">
+        <div class="head"><h3>转换器按测试函数取舍，把公开测试留在验收里</h3><span class="tag">核心修复</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>这是问题的根。整条剔除让 91 个公开用例离开验收，而它们本来不需要任何模型调用就能继续当验收标准。</dd>
+          <dt>依据</dt>
+          <dd>材料 3：原型恢复主测试文件 80 个函数里的 66 个，检出全部已知回归，只改内部字段的对照全部通过。材料 2：恢复后的作者试跑，场景一致率从 53.3% 到 98.0%。实测：我自己的静态规则在主测试文件里分出 71 个只用公开接口的函数，并入原型留作迁移的名单后是 66 个；五个文件合计 91 个公开用例。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>把判断单位从检查改成测试函数和它的依赖闭包：辅助函数、装饰器、参数化、普通和自动生效的 fixture。</li>
+              <li>每个测试给出去向：原样保留、可恢复、需要迁移、纯内部、不是行为测试。</li>
+              <li>可恢复的测试生成到新的测试文件，按现有“契约检查”的角色进入计划。它们要走和设计测试同样的有效性验证：在原版上通过、重复一致、敲掉对应功能后失败。</li>
+              <li>不为了救测试而把私有名字写进契约。</li>
+            </ul>
+          </dd>
+          <dt>原型没做完的</dt>
+          <dd>
+            <ul class="plain">
+              <li>恢复后的测试属于哪个能力，原型里是人工审计的。需要按测试实际调用的公开名字自动归属，否则范围不是全功能时会把范围外的行为带进来。</li>
+              <li>类内定义的 fixture 解析不了，保留集上因此漏了一个场景。</li>
+              <li>检查的输入要绑定到生成的测试文件，不能绑定整个目录，否则 pytest 的缓存会被当成“验收依据被改动”。</li>
+            </ul>
+          </dd>
+          <dt>代价</dt>
+          <dd>转换本身从 1.5 秒变成 3 秒，可以忽略。真正的代价在后面：验收变严，修复轮次变多，见改进 5。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="n">4</div>
+      <div class="body">
+        <div class="head"><h3>恢复不了的测试，作为迁移任务交给测试设计</h3><span class="tag">核心修复</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>即使按函数取舍，仍有一部分测试因为依赖私有结构而不能原样保留。它们保护的公开行为需要换一种写法继续检查。现在的补测按节点触发，不知道这些行为的存在。</dd>
+          <dt>依据</dt>
+          <dd>main 的代码：补测只取没有有效测试的叶节点。实测：<code>core</code> 没有得到任何设计测试；命令行得到了 3 个，但原版 9 个用例仍有 4 个失败。材料 3：主测试文件有 13 个函数留作迁移。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>转换输出的“需要迁移”列表进入清单，作为补测的第二类目标。节点已有其它有效测试时也要处理。</li>
+              <li>测试设计者本来就能读原版仓库。给它原测试的位置和迁移原因，要求它通过公开入口重写等价的检查；判断为纯内部或范围外的，写明理由后排除。</li>
+              <li>每一项最后落在四种状态之一：已保留、已迁移、已排除、未验证。“未验证”进入改进 1 的缺口。</li>
+            </ul>
+          </dd>
+          <dt>要注意</dt>
+          <dd>迁移出的测试必须在原版上通过，并且关键断言不能变成空检查。不能为了让候选通过而放宽断言或容差。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="n">5</div>
+      <div class="body">
+        <div class="head"><h3>控制修复成本：事实绑定到用例，反馈指到具体事实</h3><span class="tag">跟着 3、4 做</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>验收变严以后，作者的修复会变多。现在的修复是在信息很少的情况下进行的：失败反馈只有异常类型和用例数，作者要在一整条检查的全部事实里猜是哪一条。</dd>
+          <dt>依据</dt>
+          <dd>材料 2：B 的主恢复检查经历 65、68、68、68、70，修复调用 4 次，作者的 token 是 A 的 3.2 倍；恢复的测试里有 7 个没有被任何事实覆盖。另一次作业里，同一个失败连修三次没有变化，花了约 226 万 token。main 的代码：每个已有测试文件的事实上限是 40 条（<code>leaf_test_design.py</code> 第 46 行），一个文件一组；失败信息按设计不给作者（<code>rewrite.py</code> 第 729 行）。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>大的测试文件按测试分组写事实，不受单文件 40 条的限制，并核对每个测试都有事实对应。</li>
+              <li>设计测试的事实也要绑定到具体的测试函数。现在每条事实都挂在文件的全部函数上。</li>
+              <li>失败反馈列出“失败用例对应的事实编号”，而不是整条检查的全部事实。这不泄露断言，只是缩小范围。</li>
+              <li>修复时能借到该能力读取或安装的非源码资源文件。现在这类文件属于不了任何能力，借不到。</li>
+            </ul>
+          </dd>
+          <dt>要你定的</dt>
+          <dd>是否允许反馈带上失败断言的期望值。默认的修复已经允许读失败能力的原版源码，相比之下一条断言信息泄露得更少；但这改变了“测试留在验证侧”的现有约定。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="n">6</div>
+      <div class="body">
+        <div class="head"><h3>用差分场景补上原测试也没覆盖的行为</h3><span class="tag">之后</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>找回原版测试只能保住原版测试查过的行为。材料 2 里，B 在公开检查上 75/75，767 个场景里仍有 15 个不一致，都是原测试没有覆盖的地方。</dd>
+          <dt>依据</dt>
+          <dd>材料 2 剩余的 15 个差异：重置后的初始值 3 个，空迭代的显示 1 个，输入输出失败后的清理 2 个，环境变量覆盖的语义 9 个。main 的代码已经支持“比较输出”的检查（<code>verification.py</code> 第 846 行），这次的作业里就有一条人工写的。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>让测试设计者除了写断言式的测试，还能写“场景脚本”：只给输入，打印可观察的结果，包括返回值、输出流、警告和异常。</li>
+              <li>期望输出不由模型写，而是冻结时在原版上录下来，候选上逐项比较。</li>
+              <li>场景的事实可以从录下的输出自动生成，作者看到的是“这个输入得到这个结果”。</li>
+            </ul>
+          </dd>
+          <dt>没有验证</dt>
+          <dd>这是一个方向，没有试过。需要解决的问题：输出里不稳定的部分（时间、地址）要先规整；场景也要像测试一样证明“功能坏了它会变”。</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="item">
+      <div class="n">7</div>
+      <div class="body">
+        <div class="head"><h3>作者策略借鉴 code-simplifier：不奖励过度压缩，公开文档算契约</h3><span class="tag">之后</span></div>
+        <dl>
+          <dt>为什么</dt>
+          <dd>前六项都在加强“查”。这一项针对“写”：现在的策略文字在测试没覆盖的地方，是把作者往少写的方向推的。</dd>
+          <dt>依据</dt>
+          <dd>main 的作者策略里有一句“用提供这些能力所需的最少代码和结构来设计”，度量是 token。体积目标是 50%，Codex 那次交付到了 32.4%，公开用例失败 14 个；三个 Claude 结果在 54% 左右，失败 1 到 4 个。只有四个点，运行器也不同，这是观察到的相关，不能说是因果。公开定义带文档的比例从 63.3% 降到 0% 到 23%。</dd>
+          <dt>逐条对照</dt>
+          <dd>见下一节的表。</dd>
+          <dt>怎么改</dt>
+          <dd>
+            <ul class="plain">
+              <li>达到体积目标之后不再把“更小”当目标。策略里写明：不靠删掉输入校验、边界分支和错误处理来省 token；清晰优先于简短。</li>
+              <li>按能力报告体积比例。某个能力的体积远低于目标、同时它的原版测试又被剔除过，在报告里标出来请人看。</li>
+              <li>公开函数和类的文档字符串算外部契约的一部分，至少保留一句说明和参数。<code>help()</code> 和编辑器提示是用户看得到的输出。</li>
+            </ul>
+          </dd>
+          <dt>没有验证</dt>
+          <dd>这三条都没有试。改策略文字的效果要靠改进 2 的回放数字来衡量。</dd>
+        </dl>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>code-simplifier 的原则和 nanolize 现在的作者策略</h2>
+  <p>两者的出发点不同。code-simplifier 在看得见的代码上就地整理，没被测试覆盖的行为默认原样留着。nanolize 让作者只凭契约和事实另写一份，没写进契约、事实和测试的行为默认就丢了。所以同样一句“保持功能不变”，在 nanolize 里要靠验收来兑现。</p>
+  <div class="panel"><div class="scroll">
+  <table class="three">
+    <thead><tr><th>code-simplifier 的原则</th><th>nanolize 现在</th><th>可以借鉴的</th></tr></thead>
+    <tbody>
+      <tr><td><b>保持功能不变。</b>只改怎么做，不改做什么；所有原有的功能、输出和行为都要保留</td><td>策略里有 <code>functionality_first</code>、<code>functional_contracts</code>、<code>diagnostics</code> 三条，意思相同。但作者看不到原版，只能保住被告知的行为</td><td>这条原则本身已经有了。差距在“被告知的行为”不全，对应改进 3、4、6</td></tr>
+      <tr><td><b>清晰优先于简短。</b>不用嵌套三元表达式和过密的单行写法；显式的代码往往更好</td><td>策略要求“最少的代码和结构”，度量是 token，没有可读性方面的约束</td><td>加一条可读性的约束，并且不奖励低于目标的压缩（改进 7）</td></tr>
+      <tr><td><b>避免过度简化。</b>不把太多事情并进一个函数；不删有用的抽象；不为了行数牺牲可读和可调试</td><td>策略鼓励合并、拆分和省去原版的内部结构，这是重写的目的</td><td>保留这个自由，但加上“不靠删掉校验和边界处理来变小”</td></tr>
+      <tr><td><b>去掉显而易见的注释。</b>只记录影响理解的重要改动</td><td>默认不写注释和文档字符串，不带过原版的文档</td><td>内部代码可以照旧。公开接口的文档字符串算契约</td></tr>
+      <tr><td><b>只动最近改过的代码。</b></td><td>修复阶段已经是这样：一次修一个原因，只改相关能力</td><td>已经一致</td></tr>
+      <tr><td><b>遵循项目规范</b>（来自 CLAUDE.md）</td><td>作者会话不应当加载工作区里的 agent 配置，这是安全上的要求</td><td>项目的编码规范如果要生效，应当由主人写进清单，再进入作者的提示词</td></tr>
+    </tbody>
+  </table>
+  </div></div>
+  <p>还有一个更大的方向，需要你来定：对于原版测试被剔除又没有替代的能力，是否从一开始就让作者读这个能力的原版源码，改成“就地简化”。这样没被检查的行为默认留着，但和“独立重写、不默写原版”的设计相冲突。在改进 3、4 落地之前，这是能直接降低这类风险的一个办法；落地之后是否还需要，可以用回放数字来判断。</p>
+</section>
+
+<section>
+  <h2>建议的顺序</h2>
+  <div class="steps">
+    <div class="step"><span class="when">第一步</span><b>让缺口看得见</b>改进 1 和 2。不花模型调用，不改变作业行为。做完之后每次交付都有一个一致性数字。</div>
+    <div class="step"><span class="when">第二步</span><b>找回公开测试</b>改进 3。把原型的做法做进转换器，补上能力归属和类内 fixture。用第一步的数字和材料里的评估集验证。</div>
+    <div class="step"><span class="when">第三步</span><b>交接和成本</b>改进 4 和 5。迁移任务进入补测；事实和反馈变精确，把修复轮次压回去。</div>
+    <div class="step"><span class="when">第四步</span><b>覆盖更多行为</b>改进 6 和 7。差分场景，以及作者策略的调整。</div>
+  </div>
+  <p>每一步的验收可以沿用材料 3 提出的三个条件：恢复或迁移的检查在原版上通过；已知的公开行为缺陷能被检出；只改内部结构的对照不被误伤。</p>
+</section>
+
+<section>
+  <h2>不建议做的</h2>
+  <ul class="plain">
+    <li><b>不要为了留住测试而把私有名字写进契约。</b>那等于要求作者照搬原版的内部结构。</li>
+    <li><b>不要放宽断言或容差来让候选通过。</b>修的是代码，不是验收标准。</li>
+    <li><b>不要把检查条目变多当成覆盖变好。</b>要看的是行为有没有去向。</li>
+    <li><b>不要把回放和独立评估的结果喂给作者。</b>它们一旦进入反馈，就不再能衡量改进的效果。要用它们修代码，就应当正式把对应的测试恢复进验收。</li>
+    <li><b>不要一刀切地要求事实逐字引用每个断言里的字面量。</b>多数字面量可以从事实陈述的规则推出来。另一次作业里量过：断言中的 167 个字符串有 87 个没有被事实逐字引用，而那次 470 个用例通过了 468 个。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>方法和局限</h2>
+  <ul class="plain">
+    <li><b>材料里的数字没有复现。</b>767 个场景、75 个公开检查、A/B 对照和恢复原型的结果都来自材料本身。原型的代码不在远端，我没有看到。</li>
+    <li><b>实测只有 tqdm 一个项目。</b>四个交付结果来自三种运行器和三个提交，不是受控对照。数字说明机制存在，不能当作一般的回归率。</li>
+    <li><b>公开和耦合的划分是静态的、保守的。</b>有些被归为耦合的测试其实也在检查公开行为，所以 91 是下限。结构耦合的 41 个用例里有 27 到 35 个在交付结果上仍然通过。</li>
+    <li><b>测试文件有一处改动。</b>顶部导入失败的项目名字换成了使用时报错的占位符。断言、参数和 fixture 没有改。</li>
+    <li><b>全功能范围。</b>四个作业保留了全部功能，所以原版测试都适用。范围不是全功能时，要先判断被剔除的测试是否在范围内。</li>
+    <li><b>七项改进都没有实现。</b>这一页没有修改 nanolize 的仓库，也没有改动任何一次作业的文件。</li>
+  </ul>
+</section>
+
+<footer>
+  <p>材料 1 到 3 是别人分享的分析页面，这里按标题引用，没有放链接。材料 4 是公开的 GitHub 文件。</p>
+  <p>nanolize 是私有仓库，这一页只引用文件名、行号和提交号。</p>
+</footer>
+
+</div>
+</body>
+</html>
